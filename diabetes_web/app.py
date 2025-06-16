@@ -3,10 +3,9 @@ import pickle
 import numpy as np
 
 # Load model
-import os
-model_path = os.path.join(os.path.dirname(__file__), 'diabetes_model.pkl')
 
-with open(model_path, 'rb') as f:
+
+with open(diabetes_model.pkl', 'rb') as f:
     model = pickle.load(f)
 
 

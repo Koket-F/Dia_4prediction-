@@ -3,8 +3,12 @@ import pickle
 import numpy as np
 
 # Load model
-with open('diabetes_model.pkl', 'rb') as f:
+import os
+model_path = os.path.join(os.path.dirname(__file__), 'diabetes_model.pkl')
+
+with open(model_path, 'rb') as f:
     model = pickle.load(f)
+
 
 st.set_page_config(page_title="Diabetes Predictor", layout="centered")
 

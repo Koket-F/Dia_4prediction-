@@ -1,75 +1,132 @@
 import streamlit as st
-import pandas as pd
 import pickle
+import numpy as np
+from supabase import create_client, Client
+from transformers import pipeline, Conversation
 
+# --- Supabase config ---
+SUPABASE_URL = 'https://tbyuuzmbtbwdzqgsgidc.supabase.co'
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRieXV1em1idGJ3ZHpxZ3NnaWRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI3OTEwOTgsImV4cCI6MjA2ODM2NzA5OH0.n9bHgYatFeh4lIiN_GDaduzEzdIJWELOrQt8ofe-qk8"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Load the model
+# --- Load diabetes prediction model ---
+with open('diabetes_model.pkl', 'rb') as f:
+    model = pickle.load(f)
 
-with open('diabetes.pkl', 'rb') as f:
-    final_model = pickle.load(f)
+# --- Load chatbot model ---
+@st.cache_resource
+def load_chatbot():
+    return pipeline("conversational", model="microsoft/DialoGPT-medium")
+chatbot = load_chatbot()
 
-def get_user_input():
-    st.title("🩺 Diabetes Risk Predictor")
+# --- User Authentication ---
+def signup(email, password):
+    try:
+        user = supabase.auth.sign_up(email=email, password=password)
+        return user
+    except Exception as e:
+        st.error(f"Signup failed: {e}")
 
-    HighBP = st.radio("Do you have high blood pressure?", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    HighChol = st.radio("Do you have high cholesterol?", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    BMI = st.number_input("Enter your Body Mass Index (BMI):", min_value=10.0, max_value=60.0, step=0.1)
-    Smoker = st.radio("Have you smoked at least 100 cigarettes in your life?", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    Stroke = st.radio("Have you ever had a stroke?", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    HeartDiseaseorAttack = st.radio("Have you ever had heart disease or a heart attack?", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    PhysActivity = st.radio("Have you done physical activity in the past 30 days (excluding job)?", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    HvyAlcoholConsump = st.radio("Do you consume alcohol heavily? (>14 drinks/week for men, >7 for women)", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    NoDocbcCost = st.radio("Were you unable to see a doctor due to cost in the past year?", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    GenHlth = st.slider("General Health (1 = Excellent, 5 = Poor):", 1, 5)
-    MentHlth = st.slider("Days mental health was not good in the past 30 days:", 0, 30)
-    PhysHlth = st.slider("Days physical health was not good in the past 30 days:", 0, 30)
-    DiffWalk = st.radio("Do you have serious difficulty walking?", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
-    Age = st.selectbox("Age Group:", options=range(1, 14), format_func=lambda x: [
-        "18–24", "25–29", "30–34", "35–39", "40–44", "45–49", "50–54",
-        "55–59", "60–64", "65–69", "70–74", "75–79", "80 or older"
-    ][x-1])
-    Education = st.selectbox("Education Level:", options=range(1, 7), format_func=lambda x: [
-        "Never attended school", "Elementary", "Some high school",
-        "High school graduate", "Some college", "College graduate"
-    ][x-1])
-    Income = st.selectbox("Income Level:", options=range(1, 9), format_func=lambda x: [
-        "Less than $10,000", "$10,000–$15,000", "$15,000–$20,000",
-        "$20,000–$25,000", "$25,000–$35,000", "$35,000–$50,000",
-        "$50,000–$75,000", "$75,000 or more"
-    ][x-1])
+def login(email, password):
+    try:
+        user = supabase.auth.sign_in(email=email, password=password)
+        return user
+    except Exception as e:
+        st.error(f"Login failed: {e}")
 
-    features = pd.DataFrame({
-        'HighBP': [HighBP],
-        'HighChol': [HighChol],
-        'BMI': [BMI],
-        'Smoker': [Smoker],
-        'Stroke': [Stroke],
-        'HeartDiseaseorAttack': [HeartDiseaseorAttack],
-        'PhysActivity': [PhysActivity],
-        'HvyAlcoholConsump': [HvyAlcoholConsump],
-        'NoDocbcCost': [NoDocbcCost],
-        'GenHlth': [GenHlth],
-        'MentHlth': [MentHlth],
-        'PhysHlth': [PhysHlth],
-        'DiffWalk': [DiffWalk],
-        'Age': [Age],
-        'Education': [Education],
-        'Income': [Income]
-    })
+def signout():
+    supabase.auth.sign_out()
 
-    return features
+# --- Save chat message to Supabase ---
+def save_message(user_email, message, is_bot):
+    supabase.table("chat_messages").insert({
+        "user_email": user_email,
+        "message": message,
+        "is_bot": is_bot
+    }).execute()
 
-# Main function
-def main():
-    user_input = get_user_input()
+# --- Fetch chat history for user ---
+def fetch_chat_history(user_email):
+    response = supabase.table("chat_messages")\
+        .select("*")\
+        .eq("user_email", user_email)\
+        .order("created_at", ascending=True).execute()
+    if response.data:
+        return response.data
+    return []
 
-    if st.button("Predict"):
-        prediction = final_model.predict(user_input)
+# --- Streamlit App ---
+st.set_page_config(page_title="Diabetes Predictor with Chatbot", layout="centered")
 
-        if prediction[0] == 1:
-            st.error("⚠️ Based on the data, you are likely to be diabetic. Please consult a doctor.")
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+st.title("🩺 Diabetes Prediction Web App with Chatbot")
+
+# --- Authentication UI ---
+if st.session_state.user is None:
+    auth_choice = st.sidebar.selectbox("Login or Signup?", ["Login", "Signup"])
+
+    with st.sidebar.form("auth_form"):
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button(auth_choice)
+
+    if submitted:
+        if auth_choice == "Signup":
+            res = signup(email, password)
+            if res and res.user:
+                st.success("Signed up! Please login now.")
         else:
-            st.success("✅ Based on the data, you are not likely to be diabetic.")
+            res = login(email, password)
+            if res and res.user:
+                st.session_state.user = res.user
+                st.success(f"Welcome {email}!")
 
-if __name__ == "__main__":
-    main()
+    st.stop()
+
+else:
+    st.sidebar.write(f"Logged in as: {st.session_state.user.email}")
+    if st.sidebar.button("Logout"):
+        signout()
+        st.session_state.user = None
+        st.experimental_rerun()
+
+    # --- Chatbot ---
+    st.sidebar.title("🤖 Diabetes Chatbot")
+    chat_input = st.sidebar.text_input("Ask a question about diabetes:")
+    if chat_input:
+        conversation = Conversation(chat_input)
+        response = chatbot(conversation)
+        bot_reply = response.generated_responses[-1]
+        st.sidebar.info(bot_reply)
+
+        # Save messages
+        save_message(st.session_state.user.email, chat_input, False)
+        save_message(st.session_state.user.email, bot_reply, True)
+
+    # Show chat history
+    chat_history = fetch_chat_history(st.session_state.user.email)
+    st.sidebar.markdown("---")
+    st.sidebar.header("Chat History")
+    for chat in chat_history[-10:]:
+        speaker = "Bot" if chat["is_bot"] else "You"
+        st.sidebar.write(f"**{speaker}:** {chat['message']}")
+
+    # --- Diabetes prediction ---
+    feature_names = ['HighBP', 'HighChol', 'BMI', 'Smoker', 'Stroke', 'HeartDiseaseorAttack', 
+                     'PhysActivity', 'HvyAlcoholConsump', 'NoDocbcCost', 'GenHlth', 'MentHlth', 
+                     'PhysHlth', 'DiffWalk', 'Age', 'Education', 'Income']
+    user_inputs = []
+
+    with st.form("prediction_form"):
+        for feature in feature_names:
+            val = st.number_input(f"{feature}", step=1.0, format="%.2f")
+            user_inputs.append(val)
+        submitted = st.form_submit_button("Predict")
+
+    if submitted:
+        input_array = np.array([user_inputs])
+        prediction = model.predict(input_array)[0]
+        result = "🟥 Diabetic" if prediction == 1 else "🟩 Not Diabetic"
+        st.success(f"Prediction Result: {result}")

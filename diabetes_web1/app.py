@@ -22,7 +22,10 @@ chatbot = load_chatbot()
 # --- User Authentication ---
 def signup(email, password):
     try:
-        user = supabase.auth.sign_up(email=email, password=password)
+        user = supabase.auth.sign_up({
+    "email": email,
+    "password": password
+})
         return user
     except Exception as e:
         st.error(f"Signup failed: {e}")

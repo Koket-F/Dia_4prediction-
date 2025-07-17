@@ -32,7 +32,10 @@ def signup(email, password):
 
 def login(email, password):
     try:
-        user = supabase.auth.sign_in(email=email, password=password)
+        user = supabase.auth.sign_in_with_password({
+    "email": email,
+    "password": password
+})
         return user
     except Exception as e:
         st.error(f"Login failed: {e}")

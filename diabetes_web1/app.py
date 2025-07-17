@@ -89,8 +89,7 @@ if st.session_state.user is None:
             if res and res.user:
              st.session_state.user = res.user
              st.success(f"Welcome {email}!")
-             st.experimental_rerun()
-
+             st.rerun()
     st.stop()
 
 else:

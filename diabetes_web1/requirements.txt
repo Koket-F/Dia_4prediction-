@@ -1,4 +1,7 @@
 streamlit
+supabase
+transformers
+torch
 numpy
 scikit-learn
 lightgbm

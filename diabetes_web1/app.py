@@ -1,84 +1,130 @@
+
 import streamlit as st
 import pickle
 import numpy as np
-from transformers import pipeline, Conversation
 from supabase import create_client, Client
-import os
+from transformers import pipeline
 
-# --- Supabase Setup ---
-SUPABASE_URL = st.secrets['https://tbyuuzmbtbwdzqgsgidc.supabase.co']
-SUPABASE_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRieXV1em1idGJ3ZHpxZ3NnaWRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI3OTEwOTgsImV4cCI6MjA2ODM2NzA5OH0.n9bHgYatFeh4lIiN_GDaduzEzdIJWELOrQt8ofe-qk8"]
+# --- Supabase config ---
+SUPABASE_URL = 'https://tbyuuzmbtbwdzqgsgidc.supabase.co'
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRieXV1em1idGJ3ZHpxZ3NnaWRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI3OTEwOTgsImV4cCI6MjA2ODM2NzA5OH0.n9bHgYatFeh4lIiN_GDaduzEzdIJWELOrQt8ofe-qk8"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Authentication State ---
-if "user" not in st.session_state:
-    st.session_state.user = None
-
-# --- Load Model ---
+# --- Load diabetes prediction model ---
 with open('diabetes.pkl', 'rb') as f:
     model = pickle.load(f)
 
-# --- Load Chatbot Model ---
+# --- Load chatbot model ---
 @st.cache_resource
-
 def load_chatbot():
-    return pipeline("conversational", model="microsoft/DialoGPT-medium")
-
+    return pipeline("text-generation", model="microsoft/DialoGPT-medium")
 chatbot = load_chatbot()
 
-# --- Page Config ---
-st.set_page_config(page_title="Diabetes Predictor", layout="centered")
+# --- User Authentication ---
+def signup(email, password):
+    try:
+        user = supabase.auth.sign_up({
+    "email": email,
+    "password": password
+})
+        return user
+    except Exception as e:
+        st.error(f"Signup failed: {e}")
 
-# --- Login or Signup Interface ---
-if not st.session_state.user:
-    auth_tab = st.sidebar.radio("Choose Action", ["Login", "Sign Up"])
+def login(email, password):
+    try:
+        user = supabase.auth.sign_in_with_password({
+    "email": email,
+    "password": password
+})
+        return user
+    except Exception as e:
+        st.error(f"Login failed: {e}")
 
-    if auth_tab == "Sign Up":
-        st.sidebar.title("📝 Sign Up")
-        with st.sidebar.form("signup_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            signup_submit = st.form_submit_button("Sign Up")
-            if signup_submit:
-                try:
-                    res = supabase.auth.sign_up({"email": email, "password": password})
-                    st.sidebar.success("✅ Sign up successful! Please verify your email.")
-                except Exception as e:
-                    st.sidebar.error(f"Signup failed: {e}")
+def signout():
+    supabase.auth.sign_out()
 
-    else:  # Login
-        st.sidebar.title("🔐 Login")
-        with st.sidebar.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            login_submit = st.form_submit_button("Login")
-            if login_submit:
-                try:
-                    user = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state.user = user
-                    st.rerun()
-                except Exception as e:
-                    st.sidebar.error(f"Login failed: {e}")
+# --- Save chat message to Supabase ---
+def save_message(user_email, message, is_bot):
+    supabase.table("chat_messages").insert({
+        "user_email": user_email,
+        "message": message,
+        "is_bot": is_bot
+    }).execute()
+
+# --- Fetch chat history for user ---
+def fetch_chat_history(user_email):
+    response = supabase.table("chat_messages")\
+        .select("*")\
+        .eq("user_email", user_email)\
+        .order("created_at", ascending=True).execute()
+    if response.data:
+        return response.data
+    return []
+
+# --- Streamlit App ---
+st.set_page_config(page_title="Diabetes Predictor with Chatbot", layout="centered")
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+st.title("🩺 Diabetes Prediction Web App with Chatbot")
+
+# --- Authentication UI ---
+if st.session_state.user is None:
+    auth_choice = st.sidebar.selectbox("Login or Signup?", ["Login", "Signup"])
+
+    with st.sidebar.form("auth_form"):
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button(auth_choice)
+
+    if submitted:
+        if auth_choice == "Signup":
+            res = signup(email, password)
+            if res and res.user:
+                st.success("Signed up! Please login now.")
+        else:
+            res = login(email, password)
+            if res and res.user:
+             st.session_state.user = res.user
+             st.success(f"Welcome {email}!")
+             st.experimental_rerun()
+
+    st.stop()
 
 else:
-    st.sidebar.success(f"👋 Welcome, {st.session_state.user.user.email}!")
+    st.sidebar.write(f"Logged in as: {st.session_state.user.email}")
+    if st.sidebar.button("Logout"):
+        signout()
+        st.session_state.user = None
+        st.experimental_rerun()
 
-    # --- Chatbot Section ---
+    # --- Chatbot ---
     st.sidebar.title("🤖 Diabetes Chatbot")
     chat_input = st.sidebar.text_input("Ask a question about diabetes:")
     if chat_input:
-        convo = Conversation(chat_input)
-        response = chatbot(convo)
-        st.sidebar.info(response.generated_responses[-1])
+        responses = chatbot(chat_input, max_length=100, num_return_sequences=1)
+        bot_reply = responses[0]['generated_text']
+        st.sidebar.info(bot_reply)
 
-    # --- Main App ---
-    st.title("🩺 Diabetes Prediction Web App")
-    st.markdown("Enter the health details below to predict diabetes risk.")
+        # Save messages
+        save_message(st.session_state.user.email, chat_input, False)
+        save_message(st.session_state.user.email, bot_reply, True)
 
+    # Show chat history
+    chat_history = fetch_chat_history(st.session_state.user.email)
+    st.sidebar.markdown("---")
+    st.sidebar.header("Chat History")
+    for chat in chat_history[-10:]:
+        speaker = "Bot" if chat["is_bot"] else "You"
+        st.sidebar.write(f"{speaker}: {chat['message']}")
+
+
+# --- Diabetes prediction ---
     feature_names = ['HighBP', 'HighChol', 'BMI', 'Smoker', 'Stroke', 'HeartDiseaseorAttack',
                      'PhysActivity', 'HvyAlcoholConsump', 'NoDocbcCost', 'GenHlth', 'MentHlth',
                      'PhysHlth', 'DiffWalk', 'Age', 'Education', 'Income']
-
     user_inputs = []
 
     with st.form("prediction_form"):
@@ -92,7 +138,3 @@ else:
         prediction = model.predict(input_array)[0]
         result = "🟥 Diabetic" if prediction == 1 else "🟩 Not Diabetic"
         st.success(f"Prediction Result: {result}")
-
-    if st.button("🔓 Logout"):
-        st.session_state.user = None
-        st.rerun()

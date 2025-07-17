@@ -4,6 +4,7 @@ import pickle
 import numpy as np
 from supabase import create_client, Client
 from transformers import pipeline
+import json
 
 # --- Supabase config ---
 SUPABASE_URL = 'https://tbyuuzmbtbwdzqgsgidc.supabase.co'
@@ -46,18 +47,18 @@ def signout():
 
 # --- Save chat message to Supabase ---
 def save_message(user_email, message, is_bot):
-    supabase.table("chat_messages").insert({
-        "user_email": user_email,
-        "message": message,
-        "is_bot": is_bot
-    }).execute()
+    supabase.table("chat_messages").insert(json.loads(json.dumps({
+    "user_email": user_email,
+    "message": message,
+    "is_bot": is_bot
+}))).execute()
 
 # --- Fetch chat history for user ---
 def fetch_chat_history(user_email):
     response = supabase.table("chat_messages")\
         .select("*")\
         .eq("user_email", user_email)\
-        .order("created_at", ascending=True).execute()
+        .order("created_at", desc=False).execute()
     if response.data:
         return response.data
     return []

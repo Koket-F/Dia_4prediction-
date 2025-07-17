@@ -10,7 +10,7 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Load diabetes prediction model ---
-with open('diabetes_model.pkl', 'rb') as f:
+with open('diabetes.pkl', 'rb') as f:
     model = pickle.load(f)
 
 # --- Load chatbot model ---

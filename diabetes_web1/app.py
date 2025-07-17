@@ -2,7 +2,7 @@ import streamlit as st
 import pickle
 import numpy as np
 from supabase import create_client, Client
-from transformers import pipeline, Conversation
+from transformers import pipeline
 
 # --- Supabase config ---
 SUPABASE_URL = 'https://tbyuuzmbtbwdzqgsgidc.supabase.co'
@@ -16,7 +16,7 @@ with open('diabetes_model.pkl', 'rb') as f:
 # --- Load chatbot model ---
 @st.cache_resource
 def load_chatbot():
-    return pipeline("conversational", model="microsoft/DialoGPT-medium")
+    return pipeline("text-generation", model="microsoft/DialoGPT-medium")
 chatbot = load_chatbot()
 
 # --- User Authentication ---
@@ -96,9 +96,8 @@ else:
     st.sidebar.title("🤖 Diabetes Chatbot")
     chat_input = st.sidebar.text_input("Ask a question about diabetes:")
     if chat_input:
-        conversation = Conversation(chat_input)
-        response = chatbot(conversation)
-        bot_reply = response.generated_responses[-1]
+        responses = chatbot(chat_input, max_length=100, num_return_sequences=1)
+        bot_reply = responses[0]['generated_text']
         st.sidebar.info(bot_reply)
 
         # Save messages
@@ -114,8 +113,8 @@ else:
         st.sidebar.write(f"**{speaker}:** {chat['message']}")
 
     # --- Diabetes prediction ---
-    feature_names = ['HighBP', 'HighChol', 'BMI', 'Smoker', 'Stroke', 'HeartDiseaseorAttack', 
-                     'PhysActivity', 'HvyAlcoholConsump', 'NoDocbcCost', 'GenHlth', 'MentHlth', 
+    feature_names = ['HighBP', 'HighChol', 'BMI', 'Smoker', 'Stroke', 'HeartDiseaseorAttack',
+                     'PhysActivity', 'HvyAlcoholConsump', 'NoDocbcCost', 'GenHlth', 'MentHlth',
                      'PhysHlth', 'DiffWalk', 'Age', 'Education', 'Income']
     user_inputs = []
 
